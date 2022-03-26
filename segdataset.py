@@ -8,6 +8,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 from PIL import Image
 from torchvision.datasets.vision import VisionDataset
+import torch.nn.functional as F 
 
 
 class SegmentationDataset(VisionDataset):
@@ -79,6 +80,10 @@ class SegmentationDataset(VisionDataset):
             if seed:
                 np.random.seed(seed)
                 indices = np.arange(len(self.image_list))
+                # print(len(self.image_list)) #n
+                # print(len(self.mask_list)) #n
+                # diff = np.setdiff1d(self.image_list, self.mask_list, assume_unique=True)
+                # print(diff)
                 np.random.shuffle(indices)
                 self.image_list = self.image_list[indices]
                 self.mask_list = self.mask_list[indices]
@@ -111,8 +116,26 @@ class SegmentationDataset(VisionDataset):
                 mask = mask.convert("RGB")
             elif self.mask_color_mode == "grayscale":
                 mask = mask.convert("L")
-            sample = {"image": image, "mask": mask}
+                #print(np.array(mask))
+                
+            sample = None
             if self.transforms:
-                sample["image"] = self.transforms(sample["image"])
-                sample["mask"] = self.transforms(sample["mask"])
+                image = self.transforms(image)
+                mask = self.transforms(mask)
+                mask[mask > 0] = 1
+                #print(sample["mask"])
+            try:
+                patches = image.unfold(1, 96, 96).unfold(2, 96, 96)
+                patches = patches.contiguous().view(-1, 3, 96, 96)
+                mask_patches = mask.unfold(1, 96, 96).unfold(2, 96, 96)
+                mask_patches = mask_patches.contiguous().view(-1, 1, 96, 96)
+                count = patches.shape[0]
+                #sample = {"image": patches, "mask": mask_patches, "maskname": [mask_path.name for i in range(count)]}
+                # print(patches.shape)
+                #print(mask_patches.shape)
+                if patches.numel() == 0 or mask_patches.numel() == 0:
+                    raise Exception("Empty Tensor")
+                sample = {"image": patches, "mask": mask_patches}
+            except Exception as e:
+                pass
             return sample

@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+batch_size = 2
 
 def train_model(model, criterion, dataloaders, optimizer, metrics, bpath,
                 num_epochs):
@@ -38,31 +39,56 @@ def train_model(model, criterion, dataloaders, optimizer, metrics, bpath,
                 model.eval()  # Set model to evaluate mode
 
             # Iterate over data.
+            stack = False
+            prev_inputs = None
+            prev_masks = None
             for sample in tqdm(iter(dataloaders[phase])):
+                if isinstance(sample, torch.Tensor) and sample.nelement() == 0:
+                    continue
+                    
                 inputs = sample['image'].to(device)
                 masks = sample['mask'].to(device)
-                # zero the parameter gradients
-                optimizer.zero_grad()
+    
+                if stack:
+                    inputs = torch.cat([prev_inputs, inputs], 0)
+                    masks = torch.cat([prev_masks, masks], 0)
+                    stack = False
+                if inputs.shape[0] % 2 == 1:
+                    prev_inputs = inputs
+                    prev_masks = masks
+                    stack = True
+                    continue
+                
+                loss = None
+                for i in range(0, inputs.shape[0], batch_size):
+                    ip = inputs[i:i+batch_size]
+                    msk = masks[i:i+batch_size]
+                    if ip.nelement() == 0:
+                        continue
+                    # zero the parameter gradients
+                    optimizer.zero_grad()
 
-                # track history if only in train
-                with torch.set_grad_enabled(phase == 'Train'):
-                    outputs = model(inputs)
-                    loss = criterion(outputs['out'], masks)
-                    y_pred = outputs['out'].data.cpu().numpy().ravel()
-                    y_true = masks.data.cpu().numpy().ravel()
-                    for name, metric in metrics.items():
-                        if name == 'f1_score':
-                            # Use a classification threshold of 0.1
-                            batchsummary[f'{phase}_{name}'].append(
-                                metric(y_true > 0, y_pred > 0.1))
-                        else:
-                            batchsummary[f'{phase}_{name}'].append(
-                                metric(y_true.astype('uint8'), y_pred))
+                    # track history if only in train
+                    with torch.set_grad_enabled(phase == 'Train'):
+                        outputs = model(ip)
+                        loss = criterion(outputs['out'], msk)
+                        y_pred = outputs['out'].data.cpu().numpy().ravel()
+                        y_true = msk.data.cpu().numpy().ravel()
+                        #print(np.unique(y_true))
+                        for name, metric in metrics.items():
+                            if name == 'f1_score':
+                                # Use a classification threshold of 0.1
+                                batchsummary[f'{phase}_{name}'].append(
+                                    metric(y_true > 0, y_pred > 0.1))
+                            else:
+                                batchsummary[f'{phase}_{name}'].append(
+                                    metric(y_true.astype('uint8'), y_pred))
 
-                    # backward + optimize only if in training phase
-                    if phase == 'Train':
-                        loss.backward()
-                        optimizer.step()
+                        # backward + optimize only if in training phase
+                        if phase == 'Train':
+                            loss.backward()
+                            optimizer.step()
+                            #print(loss.item())
             batchsummary['epoch'] = epoch
             epoch_loss = loss
             batchsummary[f'{phase}_loss'] = epoch_loss.item()

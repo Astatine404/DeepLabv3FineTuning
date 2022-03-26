@@ -43,7 +43,8 @@ def main(data_directory, exp_directory, epochs, batch_size):
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
     # Specify the evaluation metrics
-    metrics = {'f1_score': f1_score, 'auroc': roc_auc_score}
+    #metrics = {'f1_score': f1_score, 'auroc': roc_auc_score}
+    metrics = {'f1_score': f1_score}
 
     # Create the dataloader
     dataloaders = datahandler.get_dataloader_single_folder(
